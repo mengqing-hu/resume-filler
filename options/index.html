@@ -8,16 +8,47 @@
   </head>
   <body>
     <main class="options-shell">
-      <header>
-        <p class="eyebrow">Resume Filler</p>
-        <h1>设置</h1>
-        <p>简历版本、模块和字段管理将在后续里程碑中实现。</p>
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Resume Filler</p>
+          <h1>简历设置</h1>
+          <p class="page-description">简历内容仅保存在当前浏览器中。</p>
+        </div>
       </header>
 
-      <section aria-labelledby="status-title">
-        <h2 id="status-title">当前状态</h2>
-        <p>Manifest、后台服务和侧边栏骨架已经可以加载。</p>
-      </section>
+      <div class="workspace">
+        <aside class="resume-sidebar" aria-labelledby="resume-list-title">
+          <div class="sidebar-heading">
+            <h2 id="resume-list-title">简历版本</h2>
+            <span>1 份</span>
+          </div>
+          <div id="resume-list" class="resume-list" aria-live="polite"></div>
+          <p class="sidebar-note">多版本管理将在后续里程碑中开放。</p>
+        </aside>
+
+        <section class="editor-panel" aria-labelledby="resume-title">
+          <header class="editor-header">
+            <div>
+              <p class="section-label">当前简历</p>
+              <h2 id="resume-title">正在加载</h2>
+              <p id="save-status" class="save-status" role="status" aria-live="polite">
+                正在读取本地数据
+              </p>
+            </div>
+            <button id="save-resume" class="primary-button" type="submit" form="resume-form" disabled>
+              保存简历
+            </button>
+          </header>
+
+          <nav id="module-navigation" class="module-navigation" aria-label="简历模块"></nav>
+
+          <form id="resume-form" class="resume-form">
+            <p class="loading-state">正在准备默认简历...</p>
+          </form>
+        </section>
+      </div>
+
+      <p id="page-error" class="page-error" role="alert" hidden></p>
     </main>
 
     <script type="module" src="options.js"></script>

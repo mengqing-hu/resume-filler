@@ -9,15 +9,29 @@
   <body>
     <main class="panel-shell">
       <header class="panel-header">
-        <p class="eyebrow">Resume Filler</p>
-        <h1>简历填写助手</h1>
+        <div>
+          <p class="eyebrow">Resume Filler</p>
+          <h1>简历填写助手</h1>
+        </div>
+        <button id="open-options" class="settings-button" type="button" aria-label="打开设置页">
+          设置
+        </button>
       </header>
 
-      <section class="empty-state" aria-labelledby="empty-state-title">
-        <h2 id="empty-state-title">项目骨架已就绪</h2>
-        <p>后续将在这里切换简历，并选择字段内容填写到网页。</p>
-        <button id="open-options" type="button">打开设置页</button>
+      <section class="resume-summary" aria-labelledby="active-resume-label">
+        <span id="active-resume-label">当前简历</span>
+        <strong id="active-resume-name">正在加载</strong>
       </section>
+
+      <p class="milestone-note">
+        当前阶段仅展示已保存内容，网页填写功能将在后续里程碑中开放。
+      </p>
+
+      <div id="module-list" class="module-list" aria-live="polite">
+        <p class="loading-state">正在读取简历内容...</p>
+      </div>
+
+      <p id="panel-status" class="panel-status" role="status" aria-live="polite"></p>
     </main>
 
     <script type="module" src="sidepanel.js"></script>

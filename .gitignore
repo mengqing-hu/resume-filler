@@ -1,0 +1,15 @@
+node_modules/
+coverage/
+*.log
+
+# 本地导出的简历可能包含个人信息。
+backups/
+*.resume-backup.json
+
+# 操作系统和编辑器文件。
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+*.md
