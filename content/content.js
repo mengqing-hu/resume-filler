@@ -35,6 +35,7 @@
     (event) => {
       const target = event.composedPath()[0];
       lastFocusedElement = isSupportedField(target) ? target : null;
+      notifyFocusState(lastFocusedElement !== null);
     },
     true,
   );
@@ -46,6 +47,7 @@
 
       if (!isSupportedField(target)) {
         lastFocusedElement = null;
+        notifyFocusState(false);
       }
     },
     true,
@@ -150,6 +152,17 @@
    */
   function hasUndoEntry() {
     return undoEntry !== null && undoEntry.element.isConnected;
+  }
+
+  /**
+   * 通知后台当前框架是否包含最后聚焦的输入框，用于嵌套页面路由。
+   *
+   * @param {boolean} focused
+   */
+  function notifyFocusState(focused) {
+    void chrome.runtime
+      .sendMessage({ type: "resume-filler-focus-state", focused })
+      .catch(() => {});
   }
 
   /**

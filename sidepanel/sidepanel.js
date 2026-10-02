@@ -313,17 +313,11 @@ async function copyValue(value, message) {
  * @returns {Promise<Record<string, unknown> & { status: string }>}
  */
 async function sendMessageToActivePage(message) {
-  const [activeTab] = await chrome.tabs.query({
-    active: true,
-    currentWindow: true,
-  });
-
-  if (activeTab?.id === undefined) {
-    return { status: "unavailable" };
-  }
-
   try {
-    const response = await chrome.tabs.sendMessage(activeTab.id, message);
+    const response = await chrome.runtime.sendMessage({
+      type: "route-to-active-page",
+      payload: message,
+    });
 
     if (
       typeof response === "object" &&
