@@ -1,0 +1,51 @@
+:root {
+  color-scheme: light dark;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.options-shell {
+  width: min(960px, calc(100% - 40px));
+  margin: 64px auto;
+}
+
+.options-shell header,
+.options-shell section {
+  padding: 28px;
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 14px;
+}
+
+.options-shell section {
+  margin-top: 20px;
+}
+
+.options-shell h1,
+.options-shell h2,
+.options-shell p {
+  margin-top: 0;
+}
+
+.options-shell p:last-child {
+  margin-bottom: 0;
+  color: GrayText;
+  line-height: 1.6;
+}
+
+.eyebrow {
+  margin-bottom: 4px;
+  color: GrayText;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

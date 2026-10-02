@@ -1,0 +1,83 @@
+:root {
+  color-scheme: light dark;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 280px;
+}
+
+button {
+  font: inherit;
+}
+
+.panel-shell {
+  display: grid;
+  gap: 24px;
+  padding: 24px 18px;
+}
+
+.panel-header h1,
+.empty-state h2,
+.empty-state p {
+  margin: 0;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: GrayText;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panel-header h1 {
+  font-size: 1.35rem;
+}
+
+.empty-state {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid color-mix(in srgb, CanvasText 16%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, Canvas 94%, CanvasText);
+}
+
+.empty-state h2 {
+  font-size: 1rem;
+}
+
+.empty-state p {
+  color: GrayText;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.empty-state button {
+  width: fit-content;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.empty-state button:hover {
+  background: #1d4ed8;
+}
+
+.empty-state button:focus-visible {
+  outline: 3px solid color-mix(in srgb, #2563eb 45%, transparent);
+  outline-offset: 2px;
+}
