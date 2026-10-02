@@ -26,6 +26,11 @@
           <button id="create-resume" class="create-resume-button" type="button">
             新建空白简历
           </button>
+          <div class="backup-actions">
+            <button id="import-backup" type="button">导入备份</button>
+            <button id="export-all" type="button">导出全部</button>
+          </div>
+          <input id="backup-file" type="file" accept="application/json,.json" hidden>
         </aside>
 
         <section class="editor-panel" aria-labelledby="resume-title">
@@ -38,7 +43,7 @@
               </p>
             </div>
             <button id="save-resume" class="primary-button" type="button" disabled>
-              保存更改
+              立即保存
             </button>
           </header>
 

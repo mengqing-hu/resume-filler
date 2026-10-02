@@ -3,6 +3,7 @@
 import { renderContentEditor } from "./content-editor.js";
 import { renderResumeList } from "./resume-list.js";
 import { renderFieldManager, renderModuleManager } from "./schema-editor.js";
+import { createBackupDocument, parseBackupDocument } from "../lib/backup.js";
 import {
   createEmptyGroup,
   createFieldId,
@@ -13,6 +14,7 @@ import {
   deleteResume,
   duplicateResume,
   getResumeCollection,
+  importResumes,
   renameResume,
   saveResume,
   setActiveResume,
@@ -27,7 +29,10 @@ import {
 /** @typedef {import("../lib/storage.js").ResumeCollection} ResumeCollection */
 
 const createResumeButton = getElement("create-resume", HTMLButtonElement);
+const backupFileInput = getElement("backup-file", HTMLInputElement);
+const exportAllButton = getElement("export-all", HTMLButtonElement);
 const fieldManager = getElement("field-manager", HTMLElement);
+const importBackupButton = getElement("import-backup", HTMLButtonElement);
 const moduleManager = getElement("module-manager", HTMLElement);
 const moduleNavigation = getElement("module-navigation", HTMLElement);
 const pageError = getElement("page-error", HTMLParagraphElement);
@@ -49,11 +54,31 @@ let selectedResumeId = "";
 let selectedFieldModuleId = null;
 let activeTab = "content";
 let hasUnsavedChanges = false;
-let isSaving = false;
+let changeRevision = 0;
+/** @type {number | null} */
+let autoSaveTimer = null;
+/** @type {Promise<boolean> | null} */
+let saveInProgress = null;
 
 resumeForm.addEventListener("submit", (event) => event.preventDefault());
-saveButton.addEventListener("click", () => void handleSave());
+saveButton.addEventListener("click", () => void flushPendingSave());
 createResumeButton.addEventListener("click", () => void handleCreateResume());
+exportAllButton.addEventListener("click", () => void handleExportAll());
+importBackupButton.addEventListener("click", () => backupFileInput.click());
+backupFileInput.addEventListener("change", () => {
+  const file = backupFileInput.files?.[0];
+  backupFileInput.value = "";
+
+  if (file !== undefined) {
+    void handleImportBackup(file);
+  }
+});
+window.addEventListener("beforeunload", (event) => {
+  if (hasUnsavedChanges || saveInProgress !== null) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
 
 for (const tabButton of tabButtons) {
   tabButton.addEventListener("click", () => {
@@ -97,6 +122,7 @@ function renderPage() {
       onRename: (resume, name) => void handleRenameResume(resume, name),
       onActivate: (resumeId) => void handleActivateResume(resumeId),
       onDuplicate: (resumeId) => void handleDuplicateResume(resumeId),
+      onExport: (resumeId) => void handleExportResume(resumeId),
       onDelete: (resumeId) => void handleDeleteResume(resumeId),
     },
   );
@@ -179,7 +205,7 @@ function renderEditors() {
  * @param {string} resumeId
  */
 async function handleSelectResume(resumeId) {
-  if (resumeId === selectedResumeId || !confirmDiscardChanges()) {
+  if (resumeId === selectedResumeId || !(await flushPendingSave())) {
     return;
   }
 
@@ -187,13 +213,14 @@ async function handleSelectResume(resumeId) {
   currentResume = copyForEditing(getSelectedStoredResume());
   selectedFieldModuleId = currentResume.modules[0]?.id ?? null;
   hasUnsavedChanges = false;
+  changeRevision = 0;
   saveButton.disabled = true;
   renderPage();
   setSaveState("已切换编辑版本", "saved");
 }
 
 async function handleCreateResume() {
-  if (!confirmDiscardChanges()) {
+  if (!(await flushPendingSave())) {
     return;
   }
 
@@ -211,6 +238,10 @@ async function handleCreateResume() {
  * @param {string} name
  */
 async function handleRenameResume(resume, name) {
+  if (!(await flushPendingSave())) {
+    return;
+  }
+
   try {
     const renamedResume = await renameResume(resume.id, name);
 
@@ -247,8 +278,7 @@ async function handleActivateResume(resumeId) {
  * @param {string} resumeId
  */
 async function handleDuplicateResume(resumeId) {
-  if (hasUnsavedChanges && resumeId === selectedResumeId) {
-    window.alert("请先保存当前更改，再复制这份简历。");
+  if (!(await flushPendingSave())) {
     return;
   }
 
@@ -275,6 +305,10 @@ async function handleDeleteResume(resumeId) {
     return;
   }
 
+  if (!(await flushPendingSave())) {
+    return;
+  }
+
   try {
     const updatedCollection = await deleteResume(resumeId);
     const selectedWasDeleted = selectedResumeId === resumeId;
@@ -285,6 +319,8 @@ async function handleDeleteResume(resumeId) {
       currentResume = copyForEditing(getSelectedStoredResume());
       selectedFieldModuleId = currentResume.modules[0]?.id ?? null;
       hasUnsavedChanges = false;
+      changeRevision = 0;
+      cancelAutoSave();
       saveButton.disabled = true;
     }
 
@@ -295,26 +331,113 @@ async function handleDeleteResume(resumeId) {
   }
 }
 
-async function handleSave() {
-  if (currentResume === null || !hasUnsavedChanges || isSaving) {
+async function handleExportAll() {
+  if (!(await flushPendingSave()) || collection === null) {
     return;
   }
 
-  isSaving = true;
-  saveButton.disabled = true;
-  setSaveState("正在保存...", "saving");
+  try {
+    downloadBackup(
+      collection.resumes,
+      collection.activeResumeId,
+      `resume-filler-${createDateStamp()}.resume-backup.json`,
+    );
+    setSaveState("全部简历已导出", "saved");
+  } catch (error) {
+    showActionError("导出失败", error);
+  }
+}
+
+/**
+ * @param {string} resumeId
+ */
+async function handleExportResume(resumeId) {
+  if (!(await flushPendingSave()) || collection === null) {
+    return;
+  }
+
+  const resume = collection.resumes.find((candidate) => candidate.id === resumeId);
+
+  if (resume === undefined) {
+    showActionError("导出失败", new Error("找不到要导出的简历。"));
+    return;
+  }
 
   try {
-    currentResume = await saveResume(currentResume);
-    hasUnsavedChanges = false;
-    await refreshCollection(selectedResumeId, true);
-    setSaveState("已保存到本地浏览器", "saved");
+    downloadBackup(
+      [resume],
+      resume.id,
+      `${createSafeFileName(resume.name)}-${createDateStamp()}.resume-backup.json`,
+    );
+    setSaveState(`已导出“${resume.name}”`, "saved");
   } catch (error) {
-    setSaveState(`保存失败：${getErrorMessage(error)}`, "error");
-    saveButton.disabled = false;
-  } finally {
-    isSaving = false;
+    showActionError("导出失败", error);
   }
+}
+
+/**
+ * @param {File} file
+ */
+async function handleImportBackup(file) {
+  if (!(await flushPendingSave())) {
+    return;
+  }
+
+  try {
+    const backup = parseBackupDocument(await file.text());
+
+    if (
+      !window.confirm(
+        `备份中包含 ${backup.resumes.length} 份简历，确定作为新版本导入吗？`,
+      )
+    ) {
+      return;
+    }
+
+    const imported = await importResumes(backup.resumes);
+    await refreshCollection(imported[0].id);
+    setSaveState(`已导入 ${imported.length} 份简历`, "saved");
+  } catch (error) {
+    showActionError("导入失败", error);
+  }
+}
+
+/**
+ * @param {Resume[]} resumes
+ * @param {string} activeResumeId
+ * @param {string} fileName
+ */
+function downloadBackup(resumes, activeResumeId, fileName) {
+  const backup = createBackupDocument(resumes, activeResumeId);
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/**
+ * @returns {string}
+ */
+function createDateStamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function createSafeFileName(value) {
+  const safeName = value
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, "-")
+    .slice(0, 60);
+  return safeName || "resume";
 }
 
 function handleAddModule() {
@@ -544,14 +667,111 @@ function setActiveTab(tabName) {
 }
 
 function markDirty() {
+  changeRevision += 1;
   hasUnsavedChanges = true;
   saveButton.disabled = false;
-  setSaveState("有未保存的更改", "dirty");
+  setSaveState("等待自动保存", "dirty");
+  scheduleAutoSave();
 }
 
 function markDirtyAndRender() {
   markDirty();
   renderEditors();
+}
+
+function scheduleAutoSave() {
+  cancelAutoSave();
+  autoSaveTimer = window.setTimeout(() => {
+    autoSaveTimer = null;
+    void saveCurrentRevision();
+  }, 800);
+}
+
+function cancelAutoSave() {
+  if (autoSaveTimer !== null) {
+    window.clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+}
+
+/**
+ * 保存当前修订；保存期间产生的新修改会继续保持待保存状态。
+ *
+ * @returns {Promise<boolean>}
+ */
+async function saveCurrentRevision() {
+  if (currentResume === null || !hasUnsavedChanges) {
+    return true;
+  }
+
+  if (saveInProgress !== null) {
+    return saveInProgress;
+  }
+
+  cancelAutoSave();
+  const revision = changeRevision;
+  const resumeId = currentResume.id;
+  const snapshot = structuredClone(currentResume);
+  saveButton.disabled = true;
+  setSaveState("正在自动保存...", "saving");
+
+  saveInProgress = (async () => {
+    try {
+      const savedResume = await saveResume(snapshot);
+      const storedIndex = collection?.resumes.findIndex(
+        (resume) => resume.id === savedResume.id,
+      );
+
+      if (collection !== null && storedIndex !== undefined && storedIndex >= 0) {
+        collection.resumes[storedIndex] = savedResume;
+      }
+
+      if (currentResume?.id === resumeId) {
+        currentResume.updatedAt = savedResume.updatedAt;
+      }
+
+      if (currentResume?.id === resumeId && changeRevision === revision) {
+        hasUnsavedChanges = false;
+        saveButton.disabled = true;
+        setSaveState("已自动保存到本地浏览器", "saved");
+      } else if (currentResume?.id === resumeId) {
+        saveButton.disabled = false;
+        setSaveState("有新的更改等待保存", "dirty");
+      }
+
+      return true;
+    } catch (error) {
+      setSaveState(`自动保存失败：${getErrorMessage(error)}`, "error");
+      saveButton.disabled = false;
+      return false;
+    }
+  })();
+
+  const succeeded = await saveInProgress;
+  saveInProgress = null;
+
+  if (succeeded && hasUnsavedChanges) {
+    scheduleAutoSave();
+  }
+
+  return succeeded;
+}
+
+/**
+ * 在切换、导入或导出前保存全部待处理修订。
+ *
+ * @returns {Promise<boolean>}
+ */
+async function flushPendingSave() {
+  cancelAutoSave();
+
+  while (hasUnsavedChanges) {
+    if (!(await saveCurrentRevision())) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -563,9 +783,11 @@ async function refreshCollection(selectedId, preserveCurrentEdits = false) {
   selectedResumeId = selectedId;
 
   if (!preserveCurrentEdits) {
+    cancelAutoSave();
     currentResume = copyForEditing(getSelectedStoredResume());
     selectedFieldModuleId = currentResume.modules[0]?.id ?? null;
     hasUnsavedChanges = false;
+    changeRevision = 0;
     saveButton.disabled = true;
   }
 
@@ -593,16 +815,6 @@ function getSelectedStoredResume() {
  */
 function copyForEditing(resume) {
   return structuredClone(resume);
-}
-
-/**
- * @returns {boolean}
- */
-function confirmDiscardChanges() {
-  return (
-    !hasUnsavedChanges ||
-    window.confirm("当前简历有未保存的更改，确定放弃这些更改吗？")
-  );
 }
 
 /**

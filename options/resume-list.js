@@ -10,6 +10,7 @@ import { createElement } from "../lib/dom.js";
  * @property {(resume: Resume, name: string) => void} onRename
  * @property {(resumeId: string) => void} onActivate
  * @property {(resumeId: string) => void} onDuplicate
+ * @property {(resumeId: string) => void} onExport
  * @property {(resumeId: string) => void} onDelete
  */
 
@@ -102,6 +103,7 @@ function createResumeItem(
   menuContent.append(
     createMenuButton("重命名", startRename),
     createMenuButton("复制一份", () => handlers.onDuplicate(resume.id)),
+    createMenuButton("导出", () => handlers.onExport(resume.id)),
     createMenuButton(
       "删除",
       () => handlers.onDelete(resume.id),

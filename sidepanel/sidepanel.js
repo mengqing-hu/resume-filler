@@ -8,16 +8,26 @@ import { getResumeCollection, setActiveResume } from "../lib/storage.js";
 /** @typedef {import("../lib/schema.js").ResumeModule} ResumeModule */
 
 const openOptionsButton = getElement("open-options", HTMLButtonElement);
+const undoButton = getElement("undo-fill", HTMLButtonElement);
 const resumeSelector = getElement("resume-selector", HTMLSelectElement);
 const moduleList = getElement("module-list", HTMLDivElement);
 const panelStatus = getElement("panel-status", HTMLParagraphElement);
+const collapsedModuleIds = new Set();
 
 openOptionsButton.addEventListener("click", () => {
   void chrome.runtime.openOptionsPage();
 });
 
+undoButton.addEventListener("click", () => {
+  void handleUndo();
+});
+
 resumeSelector.addEventListener("change", () => {
   void handleResumeChange(resumeSelector.value);
+});
+
+chrome.tabs.onActivated.addListener(() => {
+  void refreshUndoAvailability();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -35,6 +45,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 void loadResumeCollection();
+void refreshUndoAvailability();
 
 async function loadResumeCollection() {
   try {
@@ -58,8 +69,7 @@ async function loadResumeCollection() {
     );
     resumeSelector.disabled = false;
     renderResume(activeResume);
-    panelStatus.textContent = "已显示最新保存内容";
-    panelStatus.dataset.state = "loaded";
+    setPanelStatus("已显示最新保存内容", "loaded");
   } catch (error) {
     resumeSelector.disabled = true;
     moduleList.replaceChildren(
@@ -68,8 +78,7 @@ async function loadResumeCollection() {
         classNames: ["error-state"],
       }),
     );
-    panelStatus.textContent = getErrorMessage(error);
-    panelStatus.dataset.state = "error";
+    setPanelStatus(getErrorMessage(error), "error");
   }
 }
 
@@ -78,14 +87,13 @@ async function loadResumeCollection() {
  */
 async function handleResumeChange(resumeId) {
   resumeSelector.disabled = true;
-  panelStatus.textContent = "正在切换简历...";
+  setPanelStatus("正在切换简历...", "working");
 
   try {
     await setActiveResume(resumeId);
     await loadResumeCollection();
   } catch (error) {
-    panelStatus.textContent = `切换失败：${getErrorMessage(error)}`;
-    panelStatus.dataset.state = "error";
+    setPanelStatus(`切换失败：${getErrorMessage(error)}`, "error");
     await loadResumeCollection();
   }
 }
@@ -106,25 +114,47 @@ function renderResume(resume) {
  */
 function renderModule(module, resume) {
   const section = createElement("section", { classNames: ["module-section"] });
+  const header = createElement("div", { classNames: ["module-header"] });
   const title = createElement("h2", { text: module.name });
-  section.append(title);
+  const toggleButton = createElement("button", {
+    text: collapsedModuleIds.has(module.id) ? "展开" : "收起",
+    classNames: ["module-toggle"],
+  });
+  const content = createElement("div", { classNames: ["module-content"] });
+  const isCollapsed = collapsedModuleIds.has(module.id);
+  toggleButton.type = "button";
+  toggleButton.setAttribute("aria-expanded", String(!isCollapsed));
+  content.hidden = isCollapsed;
+  toggleButton.addEventListener("click", () => {
+    const shouldCollapse = !content.hidden;
+    content.hidden = shouldCollapse;
+    toggleButton.textContent = shouldCollapse ? "展开" : "收起";
+    toggleButton.setAttribute("aria-expanded", String(!shouldCollapse));
+
+    if (shouldCollapse) {
+      collapsedModuleIds.add(module.id);
+    } else {
+      collapsedModuleIds.delete(module.id);
+    }
+  });
+  header.append(title, toggleButton);
+  section.append(header, content);
   const storedValue = resume.values[module.id];
 
   if (module.kind === "multi") {
     const groups = Array.isArray(storedValue) ? storedValue : [];
 
     if (groups.length === 0) {
-      section.append(createEmptyMessage());
-      return section;
+      content.append(createEmptyMessage());
+    } else {
+      groups.forEach((group, groupIndex) => {
+        content.append(renderGroup(module, group, groupIndex, true));
+      });
     }
-
-    groups.forEach((group, groupIndex) => {
-      section.append(renderGroup(module, group, groupIndex, true));
-    });
   } else if (isResumeGroup(storedValue)) {
-    section.append(renderGroup(module, storedValue, 0, false));
+    content.append(renderGroup(module, storedValue, 0, false));
   } else {
-    section.append(createEmptyMessage());
+    content.append(createEmptyMessage());
   }
 
   return section;
@@ -187,7 +217,7 @@ function renderGroup(module, group, groupIndex, showTitle) {
 }
 
 /**
- * 优先把字段写入网页，找不到输入框或无法通信时复制到剪贴板。
+ * 优先把字段写入网页，找不到输入框时复制到剪贴板。
  *
  * @param {string} value
  * @param {string} label
@@ -195,61 +225,118 @@ function renderGroup(module, group, groupIndex, showTitle) {
  */
 async function handleFieldAction(value, label, button) {
   button.disabled = true;
-  panelStatus.textContent = `正在处理“${label}”...`;
-  panelStatus.dataset.state = "working";
+  setPanelStatus(`正在处理“${label}”...`, "working");
 
   try {
-    const result = await sendValueToActivePage(value);
+    let response = await sendMessageToActivePage({
+      type: "fill-field",
+      value,
+    });
 
-    if (result === "filled") {
-      panelStatus.textContent = "";
-      panelStatus.dataset.state = "loaded";
+    if (response.status === "maxlength-exceeded") {
+      const confirmed = window.confirm(
+        `字段内容有 ${String(response.valueLength)} 个字符，输入框最多允许 ${String(response.maxLength)} 个字符。仍要继续填写吗？`,
+      );
+
+      if (!confirmed) {
+        setPanelStatus("已取消填写，字段内容超过输入框限制", "warning");
+        return;
+      }
+
+      response = await sendMessageToActivePage({
+        type: "fill-field",
+        value,
+        ignoreMaxLength: true,
+      });
+    }
+
+    if (response.status === "filled") {
+      undoButton.disabled = false;
+      setPanelStatus("", "loaded");
       return;
     }
 
-    await navigator.clipboard.writeText(value);
-    panelStatus.textContent = "未检测到可用输入框，内容已复制到剪贴板";
-    panelStatus.dataset.state = "copied";
+    if (response.status === "unavailable") {
+      await copyValue(
+        value,
+        "页面脚本不可用，请刷新网页；内容已复制到剪贴板",
+      );
+      return;
+    }
+
+    if (response.status === "error") {
+      await copyValue(value, "网页填写失败，内容已复制到剪贴板");
+      return;
+    }
+
+    await copyValue(value, "未检测到可用输入框，内容已复制到剪贴板");
   } catch (error) {
-    panelStatus.textContent = `操作失败：${getErrorMessage(error)}`;
-    panelStatus.dataset.state = "error";
+    setPanelStatus(`操作失败：${getErrorMessage(error)}`, "error");
   } finally {
     button.disabled = false;
   }
 }
 
+async function handleUndo() {
+  undoButton.disabled = true;
+  const response = await sendMessageToActivePage({ type: "undo-fill" });
+
+  if (response.status === "undone") {
+    setPanelStatus("已撤销上次填写", "copied");
+  } else if (response.status === "unavailable") {
+    setPanelStatus("页面脚本不可用，请刷新网页后重试", "error");
+  } else if (response.status === "error") {
+    setPanelStatus("撤销失败", "error");
+  } else {
+    setPanelStatus("当前页面没有可撤销的填写", "warning");
+  }
+}
+
+async function refreshUndoAvailability() {
+  const response = await sendMessageToActivePage({ type: "get-fill-status" });
+  undoButton.disabled = !(
+    response.status === "ready" && response.canUndo === true
+  );
+}
+
 /**
  * @param {string} value
- * @returns {Promise<"filled" | "no-target">}
+ * @param {string} message
  */
-async function sendValueToActivePage(value) {
+async function copyValue(value, message) {
+  await navigator.clipboard.writeText(value);
+  setPanelStatus(message, "copied");
+}
+
+/**
+ * @param {Record<string, unknown>} message
+ * @returns {Promise<Record<string, unknown> & { status: string }>}
+ */
+async function sendMessageToActivePage(message) {
   const [activeTab] = await chrome.tabs.query({
     active: true,
     currentWindow: true,
   });
 
   if (activeTab?.id === undefined) {
-    return "no-target";
+    return { status: "unavailable" };
   }
 
   try {
-    const response = await chrome.tabs.sendMessage(activeTab.id, {
-      type: "fill-field",
-      value,
-    });
+    const response = await chrome.tabs.sendMessage(activeTab.id, message);
 
     if (
       typeof response === "object" &&
       response !== null &&
-      response.status === "filled"
+      typeof response.status === "string"
     ) {
-      return "filled";
+      return response;
     }
-
-    return "no-target";
   } catch {
-    return "no-target";
+    return { status: "unavailable" };
   }
+
+  return { status: "unavailable" };
 }
 
 /**
@@ -281,6 +368,15 @@ function createEmptyMessage() {
     text: "暂无内容",
     classNames: ["module-empty-state"],
   });
+}
+
+/**
+ * @param {string} message
+ * @param {"loaded" | "working" | "copied" | "warning" | "error"} state
+ */
+function setPanelStatus(message, state) {
+  panelStatus.textContent = message;
+  panelStatus.dataset.state = state;
 }
 
 /**

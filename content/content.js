@@ -27,6 +27,8 @@
 
   /** @type {HTMLInputElement | HTMLTextAreaElement | null} */
   let lastFocusedElement = null;
+  /** @type {{ element: HTMLInputElement | HTMLTextAreaElement, value: string } | null} */
+  let undoEntry = null;
 
   document.addEventListener(
     "focusin",
@@ -50,11 +52,23 @@
   );
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!isFillMessage(message)) {
+    if (isFillMessage(message)) {
+      sendResponse(
+        fillLastFocusedField(message.value, message.ignoreMaxLength === true),
+      );
       return false;
     }
 
-    sendResponse(fillLastFocusedField(message.value));
+    if (isUndoMessage(message)) {
+      sendResponse(undoLastFill());
+      return false;
+    }
+
+    if (isStatusMessage(message)) {
+      sendResponse({ status: "ready", canUndo: hasUndoEntry() });
+      return false;
+    }
+
     return false;
   });
 
@@ -62,9 +76,10 @@
    * 将内容写入最后获得焦点的输入框，并触发表单框架常用事件。
    *
    * @param {string} value
-   * @returns {{ status: "filled" | "no-target" | "error" }}
+   * @param {boolean} ignoreMaxLength
+   * @returns {{ status: string, maxLength?: number, valueLength?: number }}
    */
-  function fillLastFocusedField(value) {
+  function fillLastFocusedField(value, ignoreMaxLength) {
     const target = lastFocusedElement;
 
     if (
@@ -76,15 +91,65 @@
       return { status: "no-target" };
     }
 
+    const maxLength = target.maxLength;
+
+    if (!ignoreMaxLength && maxLength >= 0 && value.length > maxLength) {
+      return {
+        status: "maxlength-exceeded",
+        maxLength,
+        valueLength: value.length,
+      };
+    }
+
+    const previousValue = target.value;
+
     try {
       setNativeValue(target, value);
+
+      if (target.value !== value) {
+        setNativeValue(target, previousValue);
+        return { status: "error" };
+      }
+
       dispatchFormEvents(target, value);
-      highlightField(target);
+      highlightField(target, "#bbf7d0");
+      undoEntry = { element: target, value: previousValue };
       return { status: "filled" };
     } catch (error) {
       console.error("简历填写助手无法写入当前输入框。", error);
       return { status: "error" };
     }
+  }
+
+  /**
+   * @returns {{ status: "undone" | "no-history" | "error" }}
+   */
+  function undoLastFill() {
+    if (!hasUndoEntry()) {
+      undoEntry = null;
+      return { status: "no-history" };
+    }
+
+    const entry = undoEntry;
+
+    try {
+      setNativeValue(entry.element, entry.value);
+      dispatchFormEvents(entry.element, entry.value);
+      highlightField(entry.element, "#fde68a");
+      lastFocusedElement = entry.element;
+      undoEntry = null;
+      return { status: "undone" };
+    } catch (error) {
+      console.error("简历填写助手无法撤销上次填写。", error);
+      return { status: "error" };
+    }
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  function hasUndoEntry() {
+    return undoEntry !== null && undoEntry.element.isConnected;
   }
 
   /**
@@ -149,15 +214,16 @@
   }
 
   /**
-   * 使用临时动画提示填写目标，不修改网页的永久样式。
+   * 使用临时动画提示填写或撤销目标，不修改网页的永久样式。
    *
    * @param {HTMLInputElement | HTMLTextAreaElement} element
+   * @param {string} highlightColor
    */
-  function highlightField(element) {
+  function highlightField(element, highlightColor) {
     const originalColor = getComputedStyle(element).backgroundColor;
     element.animate(
       [
-        { backgroundColor: "#bbf7d0" },
+        { backgroundColor: highlightColor },
         { backgroundColor: originalColor },
       ],
       { duration: 900, easing: "ease-out" },
@@ -183,14 +249,37 @@
 
   /**
    * @param {unknown} message
-   * @returns {message is { type: "fill-field", value: string }}
+   * @returns {message is { type: "fill-field", value: string, ignoreMaxLength?: boolean }}
    */
   function isFillMessage(message) {
-    if (typeof message !== "object" || message === null) {
+    if (!isRecord(message)) {
       return false;
     }
 
-    const candidate = /** @type {Record<string, unknown>} */ (message);
-    return candidate.type === "fill-field" && typeof candidate.value === "string";
+    return message.type === "fill-field" && typeof message.value === "string";
+  }
+
+  /**
+   * @param {unknown} message
+   * @returns {message is { type: "undo-fill" }}
+   */
+  function isUndoMessage(message) {
+    return isRecord(message) && message.type === "undo-fill";
+  }
+
+  /**
+   * @param {unknown} message
+   * @returns {message is { type: "get-fill-status" }}
+   */
+  function isStatusMessage(message) {
+    return isRecord(message) && message.type === "get-fill-status";
+  }
+
+  /**
+   * @param {unknown} value
+   * @returns {value is Record<string, unknown>}
+   */
+  function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 })();
