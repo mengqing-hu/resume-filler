@@ -10,6 +10,7 @@
   --primary: #2563eb;
   --primary-soft: #eff6ff;
   --danger: #b42318;
+  --success: #087443;
   background: var(--background);
   color: var(--text);
 }
@@ -25,6 +26,7 @@
     --primary: #78a7ff;
     --primary-soft: #1e3358;
     --danger: #fda29b;
+    --success: #75d5a7;
   }
 }
 
@@ -179,10 +181,19 @@ select {
   border-radius: 8px;
   background: var(--surface-muted);
   color: var(--text);
+  cursor: pointer;
   text-align: left;
 }
 
+.field-button:hover:not(:disabled),
+.field-button:focus-visible {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  outline: none;
+}
+
 .field-button:disabled {
+  cursor: not-allowed;
   opacity: 1;
 }
 
@@ -218,6 +229,10 @@ select {
 .error-state,
 .panel-status[data-state="error"] {
   color: var(--danger);
+}
+
+.panel-status[data-state="copied"] {
+  color: var(--success);
 }
 
 .panel-status {

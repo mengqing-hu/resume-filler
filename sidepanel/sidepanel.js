@@ -167,7 +167,13 @@ function renderGroup(module, group, groupIndex, showTitle) {
       classNames: ["field-preview"],
     });
     button.type = "button";
-    button.disabled = true;
+    button.disabled = value.trim() === "";
+    button.title = button.disabled
+      ? "字段内容为空，请先前往设置页填写"
+      : `填写${field.label}`;
+    button.addEventListener("click", () => {
+      void handleFieldAction(value, field.label, button);
+    });
     button.append(label, preview);
     fields.append(button);
   }
@@ -178,6 +184,72 @@ function renderGroup(module, group, groupIndex, showTitle) {
 
   groupContainer.append(fields);
   return groupContainer;
+}
+
+/**
+ * 优先把字段写入网页，找不到输入框或无法通信时复制到剪贴板。
+ *
+ * @param {string} value
+ * @param {string} label
+ * @param {HTMLButtonElement} button
+ */
+async function handleFieldAction(value, label, button) {
+  button.disabled = true;
+  panelStatus.textContent = `正在处理“${label}”...`;
+  panelStatus.dataset.state = "working";
+
+  try {
+    const result = await sendValueToActivePage(value);
+
+    if (result === "filled") {
+      panelStatus.textContent = "";
+      panelStatus.dataset.state = "loaded";
+      return;
+    }
+
+    await navigator.clipboard.writeText(value);
+    panelStatus.textContent = "未检测到可用输入框，内容已复制到剪贴板";
+    panelStatus.dataset.state = "copied";
+  } catch (error) {
+    panelStatus.textContent = `操作失败：${getErrorMessage(error)}`;
+    panelStatus.dataset.state = "error";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/**
+ * @param {string} value
+ * @returns {Promise<"filled" | "no-target">}
+ */
+async function sendValueToActivePage(value) {
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+
+  if (activeTab?.id === undefined) {
+    return "no-target";
+  }
+
+  try {
+    const response = await chrome.tabs.sendMessage(activeTab.id, {
+      type: "fill-field",
+      value,
+    });
+
+    if (
+      typeof response === "object" &&
+      response !== null &&
+      response.status === "filled"
+    ) {
+      return "filled";
+    }
+
+    return "no-target";
+  } catch {
+    return "no-target";
+  }
 }
 
 /**
