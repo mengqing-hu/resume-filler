@@ -12,7 +12,7 @@
         <div>
           <p class="eyebrow">Resume Filler</p>
           <h1>简历设置</h1>
-          <p class="page-description">简历内容仅保存在当前浏览器中。</p>
+          <p class="page-description">每份简历拥有独立的模块、字段和内容，数据仅保存在当前浏览器中。</p>
         </div>
       </header>
 
@@ -20,31 +20,49 @@
         <aside class="resume-sidebar" aria-labelledby="resume-list-title">
           <div class="sidebar-heading">
             <h2 id="resume-list-title">简历版本</h2>
-            <span>1 份</span>
+            <span id="resume-count">0 份</span>
           </div>
           <div id="resume-list" class="resume-list" aria-live="polite"></div>
-          <p class="sidebar-note">多版本管理将在后续里程碑中开放。</p>
+          <button id="create-resume" class="create-resume-button" type="button">
+            新建空白简历
+          </button>
         </aside>
 
         <section class="editor-panel" aria-labelledby="resume-title">
           <header class="editor-header">
             <div>
-              <p class="section-label">当前简历</p>
+              <p class="section-label">正在编辑</p>
               <h2 id="resume-title">正在加载</h2>
               <p id="save-status" class="save-status" role="status" aria-live="polite">
                 正在读取本地数据
               </p>
             </div>
-            <button id="save-resume" class="primary-button" type="submit" form="resume-form" disabled>
-              保存简历
+            <button id="save-resume" class="primary-button" type="button" disabled>
+              保存更改
             </button>
           </header>
 
-          <nav id="module-navigation" class="module-navigation" aria-label="简历模块"></nav>
+          <div class="editor-tabs" role="tablist" aria-label="简历设置区域">
+            <button class="editor-tab editor-tab--active" type="button" role="tab" aria-selected="true" data-tab="content">
+              简历内容
+            </button>
+            <button class="editor-tab" type="button" role="tab" aria-selected="false" data-tab="modules">
+              模块管理
+            </button>
+            <button class="editor-tab" type="button" role="tab" aria-selected="false" data-tab="fields">
+              字段管理
+            </button>
+          </div>
 
-          <form id="resume-form" class="resume-form">
-            <p class="loading-state">正在准备默认简历...</p>
-          </form>
+          <section id="content-panel" class="tab-panel" data-panel="content">
+            <nav id="module-navigation" class="module-navigation" aria-label="简历模块"></nav>
+            <form id="resume-form" class="resume-form">
+              <p class="loading-state">正在准备简历...</p>
+            </form>
+          </section>
+
+          <section id="module-manager" class="tab-panel management-panel" data-panel="modules" hidden></section>
+          <section id="field-manager" class="tab-panel management-panel" data-panel="fields" hidden></section>
         </section>
       </div>
 

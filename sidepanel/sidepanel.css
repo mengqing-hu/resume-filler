@@ -39,7 +39,8 @@ body {
   color: var(--text);
 }
 
-button {
+button,
+select {
   font: inherit;
 }
 
@@ -58,8 +59,7 @@ button {
 
 .panel-header h1,
 .panel-header p,
-.resume-summary span,
-.resume-summary strong,
+.resume-summary label,
 .milestone-note,
 .module-section h2,
 .field-group h3,
@@ -109,16 +109,20 @@ button {
   background: var(--surface);
 }
 
-.resume-summary span {
+.resume-summary label {
   color: var(--text-muted);
   font-size: 0.72rem;
 }
 
-.resume-summary strong {
-  overflow: hidden;
-  font-size: 0.95rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.resume-summary select {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 650;
 }
 
 .milestone-note {

@@ -19,12 +19,14 @@
       </header>
 
       <section class="resume-summary" aria-labelledby="active-resume-label">
-        <span id="active-resume-label">当前简历</span>
-        <strong id="active-resume-name">正在加载</strong>
+        <label id="active-resume-label" for="resume-selector">当前简历</label>
+        <select id="resume-selector" aria-label="切换当前简历" disabled>
+          <option>正在加载</option>
+        </select>
       </section>
 
       <p class="milestone-note">
-        当前阶段仅展示已保存内容，网页填写功能将在后续里程碑中开放。
+        选择简历后会显示其最新保存内容，网页填写功能将在后续里程碑中开放。
       </p>
 
       <div id="module-list" class="module-list" aria-live="polite">

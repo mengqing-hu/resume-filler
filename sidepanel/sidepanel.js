@@ -1,14 +1,14 @@
 // @ts-check
 
 import { createElement } from "../lib/dom.js";
-import { getActiveResume } from "../lib/storage.js";
+import { getResumeCollection, setActiveResume } from "../lib/storage.js";
 
 /** @typedef {import("../lib/schema.js").Resume} Resume */
 /** @typedef {import("../lib/schema.js").ResumeGroup} ResumeGroup */
 /** @typedef {import("../lib/schema.js").ResumeModule} ResumeModule */
 
 const openOptionsButton = getElement("open-options", HTMLButtonElement);
-const activeResumeName = getElement("active-resume-name", HTMLElement);
+const resumeSelector = getElement("resume-selector", HTMLSelectElement);
 const moduleList = getElement("module-list", HTMLDivElement);
 const panelStatus = getElement("panel-status", HTMLParagraphElement);
 
@@ -16,26 +16,52 @@ openOptionsButton.addEventListener("click", () => {
   void chrome.runtime.openOptionsPage();
 });
 
+resumeSelector.addEventListener("change", () => {
+  void handleResumeChange(resumeSelector.value);
+});
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (
     areaName === "local" &&
     Object.keys(changes).some(
-      (key) => key === "activeResumeId" || key.startsWith("resume:"),
+      (key) =>
+        key === "activeResumeId" ||
+        key === "resumeOrder" ||
+        key.startsWith("resume:"),
     )
   ) {
-    void loadResume();
+    void loadResumeCollection();
   }
 });
 
-void loadResume();
+void loadResumeCollection();
 
-async function loadResume() {
+async function loadResumeCollection() {
   try {
-    const resume = await getActiveResume();
-    renderResume(resume);
+    const collection = await getResumeCollection();
+    const activeResume = collection.resumes.find(
+      (resume) => resume.id === collection.activeResumeId,
+    );
+
+    if (activeResume === undefined) {
+      throw new Error("找不到当前使用的简历。");
+    }
+
+    resumeSelector.replaceChildren(
+      ...collection.resumes.map((resume) => {
+        const option = document.createElement("option");
+        option.value = resume.id;
+        option.textContent = resume.name;
+        option.selected = resume.id === collection.activeResumeId;
+        return option;
+      }),
+    );
+    resumeSelector.disabled = false;
+    renderResume(activeResume);
     panelStatus.textContent = "已显示最新保存内容";
     panelStatus.dataset.state = "loaded";
   } catch (error) {
+    resumeSelector.disabled = true;
     moduleList.replaceChildren(
       createElement("p", {
         text: "无法读取简历，请前往设置页检查数据。",
@@ -48,10 +74,26 @@ async function loadResume() {
 }
 
 /**
+ * @param {string} resumeId
+ */
+async function handleResumeChange(resumeId) {
+  resumeSelector.disabled = true;
+  panelStatus.textContent = "正在切换简历...";
+
+  try {
+    await setActiveResume(resumeId);
+    await loadResumeCollection();
+  } catch (error) {
+    panelStatus.textContent = `切换失败：${getErrorMessage(error)}`;
+    panelStatus.dataset.state = "error";
+    await loadResumeCollection();
+  }
+}
+
+/**
  * @param {Resume} resume
  */
 function renderResume(resume) {
-  activeResumeName.textContent = resume.name;
   moduleList.replaceChildren(
     ...resume.modules.map((module) => renderModule(module, resume)),
   );
@@ -66,7 +108,6 @@ function renderModule(module, resume) {
   const section = createElement("section", { classNames: ["module-section"] });
   const title = createElement("h2", { text: module.name });
   section.append(title);
-
   const storedValue = resume.values[module.id];
 
   if (module.kind === "multi") {
@@ -125,11 +166,14 @@ function renderGroup(module, group, groupIndex, showTitle) {
       text: createValuePreview(value),
       classNames: ["field-preview"],
     });
-
     button.type = "button";
     button.disabled = true;
     button.append(label, preview);
     fields.append(button);
+  }
+
+  if (module.fields.length === 0) {
+    fields.append(createEmptyMessage());
   }
 
   groupContainer.append(fields);

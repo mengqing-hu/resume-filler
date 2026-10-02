@@ -52,6 +52,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -82,7 +83,6 @@ button:disabled {
 .editor-header h2,
 .editor-header p,
 .sidebar-heading h2,
-.sidebar-note,
 .module-heading h3,
 .group-header h4 {
   margin: 0;
@@ -139,25 +139,60 @@ button:disabled {
   font-size: 1rem;
 }
 
-.sidebar-heading span,
-.sidebar-note {
+.sidebar-heading span {
   color: var(--text-muted);
   font-size: 0.78rem;
 }
 
+.resume-list {
+  display: grid;
+  gap: 8px;
+}
+
 .resume-list-item {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px;
+  gap: 4px;
+  padding: 4px;
   border: 1px solid var(--border);
   border-radius: 10px;
 }
 
-.resume-list-item--active {
+.resume-list-item--selected {
   border-color: var(--primary);
   background: var(--primary-soft);
+}
+
+.resume-select-button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.resume-select-button[hidden] {
+  display: none;
+}
+
+.resume-rename-input {
+  min-width: 0;
+  width: 100%;
+  margin: 3px;
+  padding: 7px 8px;
+  border: 1px solid var(--primary);
+  border-radius: 7px;
+  outline: none;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.84rem;
 }
 
 .resume-list-name {
@@ -178,9 +213,76 @@ button:disabled {
   font-weight: 700;
 }
 
-.sidebar-note {
-  margin-top: 14px;
-  line-height: 1.55;
+.resume-menu {
+  position: relative;
+  flex: none;
+}
+
+.resume-menu summary {
+  padding: 7px 6px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  list-style: none;
+}
+
+.resume-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.resume-menu summary:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.resume-menu-content {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  width: 142px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 10px 24px rgb(15 23 42 / 16%);
+}
+
+.resume-menu-action {
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.resume-menu-action:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.resume-menu-action--danger {
+  color: var(--danger);
+}
+
+.create-resume-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.create-resume-button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .editor-panel {
@@ -250,6 +352,36 @@ button:disabled {
 .secondary-button:hover {
   border-color: var(--primary);
   color: var(--primary);
+}
+
+.editor-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.editor-tab {
+  padding: 13px 12px 11px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.editor-tab:hover,
+.editor-tab--active {
+  color: var(--primary);
+}
+
+.editor-tab--active {
+  border-bottom-color: var(--primary);
+}
+
+.tab-panel[hidden] {
+  display: none;
 }
 
 .module-navigation {
@@ -400,6 +532,120 @@ button:disabled {
   background: var(--danger-soft);
 }
 
+.management-panel {
+  padding: 24px 28px 32px;
+}
+
+.management-header,
+.field-manager-toolbar,
+.management-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.management-header,
+.field-manager-toolbar {
+  margin-bottom: 20px;
+}
+
+.management-header h3,
+.management-header p,
+.field-manager-toolbar h3,
+.field-manager-toolbar p,
+.management-empty-state {
+  margin: 0;
+}
+
+.management-header h3,
+.field-manager-toolbar h3 {
+  font-size: 1rem;
+}
+
+.management-header p,
+.field-manager-toolbar p,
+.management-empty-state {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.management-actions {
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.management-list {
+  display: grid;
+  gap: 8px;
+}
+
+.management-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 132px auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.management-row--drop-target {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.drag-handle {
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: grab;
+  font-size: 0.7rem;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.management-name {
+  overflow: hidden;
+  padding: 7px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kind-select,
+.module-select {
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.module-select {
+  width: min(240px, 45%);
+}
+
+.management-empty-state {
+  padding: 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  text-align: center;
+}
+
 .page-error {
   margin: 18px 0 0 270px;
   padding: 12px 16px;
@@ -432,14 +678,35 @@ button:disabled {
   }
 
   .editor-header,
-  .resume-form {
+  .resume-form,
+  .management-panel {
     padding-right: 18px;
     padding-left: 18px;
   }
 
-  .module-navigation {
+  .module-navigation,
+  .editor-tabs {
     padding-right: 18px;
     padding-left: 18px;
+  }
+
+  .management-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .management-row .kind-select {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .management-header,
+  .field-manager-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .module-select {
+    width: 100%;
   }
 
   .page-error {
