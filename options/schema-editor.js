@@ -11,7 +11,7 @@ import { createElement } from "../lib/dom.js";
 /**
  * @typedef {object} ModuleManagerHandlers
  * @property {() => void} onAdd
- * @property {(module: ResumeModule) => void} onRename
+ * @property {(module: ResumeModule, name: string) => void} onRename
  * @property {(module: ResumeModule, kind: ModuleKind) => void} onKindChange
  * @property {(module: ResumeModule) => void} onDelete
  * @property {(sourceId: string, targetId: string) => void} onMove
@@ -22,7 +22,7 @@ import { createElement } from "../lib/dom.js";
  * @typedef {object} FieldManagerHandlers
  * @property {(moduleId: string) => void} onSelectModule
  * @property {(module: ResumeModule) => void} onAdd
- * @property {(module: ResumeModule, field: ResumeField) => void} onRename
+ * @property {(module: ResumeModule, field: ResumeField, label: string) => void} onRename
  * @property {(module: ResumeModule, field: ResumeField, type: FieldType) => void} onTypeChange
  * @property {(module: ResumeModule, field: ResumeField) => void} onDelete
  * @property {(module: ResumeModule, sourceId: string, targetId: string) => void} onMove
@@ -39,7 +39,6 @@ import { createElement } from "../lib/dom.js";
 export function renderModuleManager(container, resume, handlers) {
   const header = createManagementHeader(
     "模块管理",
-    "双击模块名称可重命名。拖动把手或聚焦后按上下方向键可调整顺序。",
     "新增模块",
     handlers.onAdd,
   );
@@ -63,7 +62,11 @@ export function renderModuleManager(container, resume, handlers) {
     });
     nameButton.type = "button";
     nameButton.title = "双击重命名";
-    nameButton.addEventListener("dblclick", () => handlers.onRename(module));
+    nameButton.addEventListener("dblclick", () => {
+      startInlineRename(nameButton, module.name, (name) =>
+        handlers.onRename(module, name),
+      );
+    });
     const kindSelect = document.createElement("select");
     kindSelect.className = "kind-select";
     kindSelect.setAttribute("aria-label", `${module.name}的模块类型`);
@@ -110,12 +113,7 @@ export function renderFieldManager(
     classNames: ["field-manager-toolbar"],
   });
   const toolbarText = createElement("div");
-  toolbarText.append(
-    createElement("h3", { text: "字段管理" }),
-    createElement("p", {
-      text: "第一项字段会作为多组模块的标题。拖动把手或按上下方向键可调整顺序。",
-    }),
-  );
+  toolbarText.append(createElement("h3", { text: "字段管理" }));
   const moduleSelect = document.createElement("select");
   moduleSelect.className = "module-select";
   moduleSelect.setAttribute("aria-label", "选择要管理字段的模块");
@@ -140,14 +138,13 @@ export function renderFieldManager(
     return;
   }
 
-  const actionRow = createElement("div", { classNames: ["management-actions"] });
   const addButton = createElement("button", {
     text: "新增字段",
     classNames: ["secondary-button"],
   });
   addButton.type = "button";
   addButton.addEventListener("click", () => handlers.onAdd(selectedModule));
-  actionRow.append(addButton);
+  toolbar.append(addButton);
 
   const list = createElement("div", { classNames: ["management-list"] });
 
@@ -169,9 +166,11 @@ export function renderFieldManager(
     });
     nameButton.type = "button";
     nameButton.title = "双击重命名";
-    nameButton.addEventListener("dblclick", () =>
-      handlers.onRename(selectedModule, field),
-    );
+    nameButton.addEventListener("dblclick", () => {
+      startInlineRename(nameButton, field.label, (label) =>
+        handlers.onRename(selectedModule, field, label),
+      );
+    });
     const typeSelect = document.createElement("select");
     typeSelect.className = "kind-select";
     typeSelect.setAttribute("aria-label", `${field.label}的字段类型`);
@@ -198,23 +197,19 @@ export function renderFieldManager(
     list.append(createEmptyState("这个模块还没有字段。"));
   }
 
-  container.replaceChildren(toolbar, actionRow, list);
+  container.replaceChildren(toolbar, list);
 }
 
 /**
  * @param {string} title
- * @param {string} description
  * @param {string} actionText
  * @param {() => void} action
  * @returns {HTMLElement}
  */
-function createManagementHeader(title, description, actionText, action) {
+function createManagementHeader(title, actionText, action) {
   const header = createElement("div", { classNames: ["management-header"] });
   const text = createElement("div");
-  text.append(
-    createElement("h3", { text: title }),
-    createElement("p", { text: description }),
-  );
+  text.append(createElement("h3", { text: title }));
   const button = createElement("button", {
     text: actionText,
     classNames: ["secondary-button"],
@@ -241,11 +236,12 @@ function createDragHandle(
   onMoveByOffset,
 ) {
   const handle = createElement("button", {
-    text: "拖动",
+    text: "⠿",
     classNames: ["drag-handle"],
   });
   handle.type = "button";
   handle.draggable = true;
+  handle.title = "拖动排序";
   handle.setAttribute("aria-label", label);
   handle.addEventListener("dragstart", (event) => {
     event.dataTransfer?.setData("text/plain", itemId);
@@ -293,6 +289,52 @@ function createDeleteButton(label, action) {
   button.setAttribute("aria-label", label);
   button.addEventListener("click", action);
   return button;
+}
+
+/**
+ * 将名称按钮替换为原地输入框，支持回车保存、失焦保存和 Escape 取消。
+ *
+ * @param {HTMLButtonElement} nameButton
+ * @param {string} currentName
+ * @param {(name: string) => void} onSave
+ */
+function startInlineRename(nameButton, currentName, onSave) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = currentName;
+  input.className = "management-name-input";
+  input.setAttribute("aria-label", "编辑名称");
+  nameButton.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let finished = false;
+  const finish = (save) => {
+    if (finished) {
+      return;
+    }
+
+    finished = true;
+    const nextName = input.value.trim();
+
+    if (save && nextName !== "" && nextName !== currentName) {
+      onSave(nextName);
+      return;
+    }
+
+    input.replaceWith(nameButton);
+  };
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
 }
 
 /**
