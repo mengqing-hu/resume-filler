@@ -29,6 +29,7 @@
   let lastFocusedElement = null;
   /** @type {{ element: HTMLInputElement | HTMLTextAreaElement, value: string } | null} */
   let undoEntry = null;
+  let extensionContextAvailable = true;
 
   document.addEventListener(
     "focusin",
@@ -55,10 +56,13 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (isFillMessage(message)) {
-      sendResponse(
-        fillLastFocusedField(message.value, message.ignoreMaxLength === true),
-      );
-      return false;
+      void fillLastFocusedField(
+        message.value,
+        message.ignoreMaxLength === true,
+      )
+        .then(sendResponse)
+        .catch(() => {});
+      return true;
     }
 
     if (isUndoMessage(message)) {
@@ -79,9 +83,9 @@
    *
    * @param {string} value
    * @param {boolean} ignoreMaxLength
-   * @returns {{ status: string, maxLength?: number, valueLength?: number }}
+   * @returns {Promise<{ status: string, maxLength?: number, valueLength?: number }>}
    */
-  function fillLastFocusedField(value, ignoreMaxLength) {
+  async function fillLastFocusedField(value, ignoreMaxLength) {
     const target = lastFocusedElement;
 
     if (
@@ -93,34 +97,107 @@
       return { status: "no-target" };
     }
 
+    const compatibleValue = getCompatibleValue(target, value);
     const maxLength = target.maxLength;
 
-    if (!ignoreMaxLength && maxLength >= 0 && value.length > maxLength) {
+    if (
+      !ignoreMaxLength &&
+      maxLength >= 0 &&
+      compatibleValue.length > maxLength
+    ) {
       return {
         status: "maxlength-exceeded",
         maxLength,
-        valueLength: value.length,
+        valueLength: compatibleValue.length,
       };
     }
 
     const previousValue = target.value;
 
     try {
-      setNativeValue(target, value);
+      setNativeValue(target, compatibleValue);
 
-      if (target.value !== value) {
+      if (target.value !== compatibleValue) {
         setNativeValue(target, previousValue);
         return { status: "error" };
       }
 
-      dispatchFormEvents(target, value);
-      highlightField(target, "#bbf7d0");
+      dispatchFormEvents(target, compatibleValue);
+      await waitForPageUpdate();
+
+      if (!target.isConnected || target.value !== compatibleValue) {
+        return { status: "error" };
+      }
+
+      highlightField(target, "#dbeafe");
       undoEntry = { element: target, value: previousValue };
       return { status: "filled" };
     } catch (error) {
       console.error("简历填写助手无法写入当前输入框。", error);
       return { status: "error" };
     }
+  }
+
+  /**
+   * 根据网页日期控件当前使用的格式调整简历中的标准日期。
+   *
+   * @param {HTMLInputElement | HTMLTextAreaElement} element
+   * @param {string} value
+   * @returns {string}
+   */
+  function getCompatibleValue(element, value) {
+    if (!(element instanceof HTMLInputElement)) {
+      return value;
+    }
+
+    const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+    if (dateParts === null) {
+      return value;
+    }
+
+    const [, year, month, day] = dateParts;
+
+    if (element.type === "month") {
+      return `${year}-${month}`;
+    }
+
+    if (element.type === "date") {
+      return value;
+    }
+
+    const currentValue = element.value.trim();
+    const monthFormat = /^(\d{4})([-/.])(\d{2})$/.exec(currentValue);
+
+    if (monthFormat !== null) {
+      return `${year}${monthFormat[2]}${month}`;
+    }
+
+    const dateFormat = /^(\d{4})([-/.])(\d{2})\2(\d{2})$/.exec(currentValue);
+
+    if (dateFormat !== null) {
+      return `${year}${dateFormat[2]}${month}${dateFormat[2]}${day}`;
+    }
+
+    const placeholder = element.placeholder.trim();
+    const placeholderMonthFormat = /^y{4}([-/.])m{1,2}$/i.exec(placeholder);
+
+    if (placeholderMonthFormat !== null) {
+      return `${year}${placeholderMonthFormat[1]}${month}`;
+    }
+
+    return value;
+  }
+
+  /**
+   * 等待网页框架处理输入事件，避免受控表单恢复旧值后仍报告成功。
+   *
+   * @returns {Promise<void>}
+   */
+  function waitForPageUpdate() {
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, 80);
+    });
   }
 
   /**
@@ -160,9 +237,18 @@
    * @param {boolean} focused
    */
   function notifyFocusState(focused) {
-    void chrome.runtime
-      .sendMessage({ type: "resume-filler-focus-state", focused })
-      .catch(() => {});
+    if (!extensionContextAvailable) {
+      return;
+    }
+
+    try {
+      void chrome.runtime
+        .sendMessage({ type: "resume-filler-focus-state", focused })
+        .catch(() => {});
+    } catch {
+      // 扩展重载后旧页面脚本会失去上下文，等待页面刷新后重新注入。
+      extensionContextAvailable = false;
+    }
   }
 
   /**
