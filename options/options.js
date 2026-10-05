@@ -42,8 +42,23 @@ const resumeList = getElement("resume-list", HTMLDivElement);
 const resumeTitle = getElement("resume-title", HTMLHeadingElement);
 const saveButton = getElement("save-resume", HTMLButtonElement);
 const saveStatus = getElement("save-status", HTMLParagraphElement);
+const actionToast = getElement("action-toast", HTMLDivElement);
+const resumeSidebar = getElement("resume-sidebar", HTMLElement);
+const resumeSidebarContent = getElement("resume-sidebar-content", HTMLElement);
+const sidebarTitle = getElement("sidebar-title", HTMLElement);
 const tabButtons = Array.from(document.querySelectorAll(".editor-tab"));
 const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
+const toggleResumeSidebarButton = getElement(
+  "toggle-resume-sidebar",
+  HTMLButtonElement,
+);
+const workspace = getElement("workspace", HTMLDivElement);
+
+const SIDEBAR_COLLAPSED_KEY = "resumeSidebarCollapsed";
+
+void chrome.runtime
+  .sendMessage({ type: "options-page-ready" })
+  .catch(() => {});
 
 /** @type {ResumeCollection | null} */
 let collection = null;
@@ -59,12 +74,18 @@ let changeRevision = 0;
 let autoSaveTimer = null;
 /** @type {Promise<boolean> | null} */
 let saveInProgress = null;
+let actionToastTimer = null;
 
 resumeForm.addEventListener("submit", (event) => event.preventDefault());
 saveButton.addEventListener("click", () => void flushPendingSave());
 createResumeButton.addEventListener("click", () => void handleCreateResume());
 exportAllButton.addEventListener("click", () => void handleExportAll());
 importBackupButton.addEventListener("click", () => backupFileInput.click());
+toggleResumeSidebarButton.addEventListener("click", () => {
+  setResumeSidebarCollapsed(
+    !workspace.classList.contains("workspace--sidebar-collapsed"),
+  );
+});
 backupFileInput.addEventListener("change", () => {
   const file = backupFileInput.files?.[0];
   backupFileInput.value = "";
@@ -80,6 +101,10 @@ window.addEventListener("beforeunload", (event) => {
   }
 });
 
+setResumeSidebarCollapsed(
+  window.sessionStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true",
+);
+
 for (const tabButton of tabButtons) {
   tabButton.addEventListener("click", () => {
     const tabName = tabButton.getAttribute("data-tab");
@@ -91,6 +116,26 @@ for (const tabButton of tabButtons) {
 }
 
 void loadPage();
+
+/**
+ * @param {boolean} isCollapsed
+ */
+function setResumeSidebarCollapsed(isCollapsed) {
+  workspace.classList.toggle("workspace--sidebar-collapsed", isCollapsed);
+  resumeSidebar.classList.toggle("resume-sidebar--collapsed", isCollapsed);
+  sidebarTitle.hidden = isCollapsed;
+  resumeSidebarContent.hidden = isCollapsed;
+  toggleResumeSidebarButton.textContent = isCollapsed ? "▶" : "▼";
+  toggleResumeSidebarButton.setAttribute("aria-expanded", String(!isCollapsed));
+  toggleResumeSidebarButton.setAttribute(
+    "aria-label",
+    isCollapsed ? "展开简历版本栏" : "收起简历版本栏",
+  );
+  window.sessionStorage.setItem(
+    SIDEBAR_COLLAPSED_KEY,
+    String(isCollapsed),
+  );
+}
 
 async function loadPage() {
   try {
@@ -152,6 +197,8 @@ function renderEditors() {
         groups.splice(groupIndex, 1);
         markDirty();
         renderEditors();
+        setSaveState("已删除内容组", "dirty");
+        showActionNotice("已删除内容组");
       }
     },
   });
@@ -228,6 +275,7 @@ async function handleCreateResume() {
     const resume = await createResume();
     await refreshCollection(resume.id);
     setSaveState("已新建空白简历", "saved");
+    showActionNotice("已新建空白简历");
   } catch (error) {
     showActionError("新建失败", error);
   }
@@ -251,6 +299,7 @@ async function handleRenameResume(resume, name) {
 
     await refreshCollection(selectedResumeId, true);
     setSaveState("简历已重命名", hasUnsavedChanges ? "dirty" : "saved");
+    showActionNotice(`已重命名为“${renamedResume.name}”`);
   } catch (error) {
     showActionError("重命名失败", error);
   }
@@ -262,13 +311,9 @@ async function handleRenameResume(resume, name) {
 async function handleActivateResume(resumeId) {
   try {
     await setActiveResume(resumeId);
-
-    if (collection !== null) {
-      collection.activeResumeId = resumeId;
-    }
-
-    renderPage();
+    await refreshCollection(selectedResumeId, true);
     setSaveState("已更新侧边栏当前简历", hasUnsavedChanges ? "dirty" : "saved");
+    showActionNotice("已设置当前使用简历");
   } catch (error) {
     showActionError("切换当前简历失败", error);
   }
@@ -286,6 +331,7 @@ async function handleDuplicateResume(resumeId) {
     const copy = await duplicateResume(resumeId);
     await refreshCollection(copy.id);
     setSaveState("已复制简历", "saved");
+    showActionNotice(`已复制简历“${copy.name}”`);
   } catch (error) {
     showActionError("复制失败", error);
   }
@@ -298,10 +344,6 @@ async function handleDeleteResume(resumeId) {
   const target = collection?.resumes.find((resume) => resume.id === resumeId);
 
   if (target === undefined) {
-    return;
-  }
-
-  if (!window.confirm(`确定删除简历“${target.name}”吗？此操作无法撤销。`)) {
     return;
   }
 
@@ -326,6 +368,7 @@ async function handleDeleteResume(resumeId) {
 
     renderPage();
     setSaveState("简历已删除", hasUnsavedChanges ? "dirty" : "saved");
+    showActionNotice(`已删除简历“${target.name}”`);
   } catch (error) {
     showActionError("删除失败", error);
   }
@@ -343,6 +386,7 @@ async function handleExportAll() {
       `resume-filler-${createDateStamp()}.resume-backup.json`,
     );
     setSaveState("全部简历已导出", "saved");
+    showActionNotice("已导出全部简历");
   } catch (error) {
     showActionError("导出失败", error);
   }
@@ -370,6 +414,7 @@ async function handleExportResume(resumeId) {
       `${createSafeFileName(resume.name)}-${createDateStamp()}.resume-backup.json`,
     );
     setSaveState(`已导出“${resume.name}”`, "saved");
+    showActionNotice(`已导出“${resume.name}”`);
   } catch (error) {
     showActionError("导出失败", error);
   }
@@ -386,17 +431,10 @@ async function handleImportBackup(file) {
   try {
     const backup = parseBackupDocument(await file.text());
 
-    if (
-      !window.confirm(
-        `备份中包含 ${backup.resumes.length} 份简历，确定作为新版本导入吗？`,
-      )
-    ) {
-      return;
-    }
-
     const imported = await importResumes(backup.resumes);
     await refreshCollection(imported[0].id);
     setSaveState(`已导入 ${imported.length} 份简历`, "saved");
+    showActionNotice(`已导入 ${imported.length} 份简历`);
   } catch (error) {
     showActionError("导入失败", error);
   }
@@ -461,20 +499,23 @@ function handleAddModule() {
   currentResume.values[module.id] = {};
   selectedFieldModuleId = module.id;
   markDirtyAndRender();
+  showActionNotice(`已添加模块“${name}”`);
 }
 
 /**
  * @param {ResumeModule} module
+ * @param {string} name
  */
-function handleRenameModule(module) {
-  const name = window.prompt("请输入新的模块名称", module.name)?.trim();
+function handleRenameModule(module, name) {
+  const normalizedName = name.trim();
 
-  if (name === undefined || name === "" || name === module.name) {
+  if (normalizedName === "" || normalizedName === module.name) {
     return;
   }
 
-  module.name = name;
+  module.name = normalizedName;
   markDirtyAndRender();
+  showActionNotice(`已重命名模块为“${normalizedName}”`);
 }
 
 /**
@@ -495,29 +536,23 @@ function handleModuleKindChange(module, kind) {
   } else {
     const groups = Array.isArray(storedValue) ? storedValue : [];
 
-    if (
-      groups.length > 1 &&
-      !window.confirm("切换为单组后只会保留第一组内容，确定继续吗？")
-    ) {
-      renderEditors();
-      return;
-    }
-
     currentResume.values[module.id] = groups[0] ?? createEmptyGroup(module);
   }
 
   module.kind = kind;
   markDirtyAndRender();
+  showActionNotice(
+    kind === "single" && Array.isArray(storedValue) && storedValue.length > 1
+      ? "已切换为单组，已保留第一组内容"
+      : `已切换为${kind === "multi" ? "多组" : "单组"}`,
+  );
 }
 
 /**
  * @param {ResumeModule} module
  */
 function handleDeleteModule(module) {
-  if (
-    currentResume === null ||
-    !window.confirm(`确定删除模块“${module.name}”及其中全部内容吗？`)
-  ) {
+  if (currentResume === null) {
     return;
   }
 
@@ -531,6 +566,7 @@ function handleDeleteModule(module) {
   }
 
   markDirtyAndRender();
+  showActionNotice(`已删除模块“${module.name}”`);
 }
 
 /**
@@ -553,21 +589,24 @@ function handleAddField(module) {
     group[field.id] = "";
   });
   markDirtyAndRender();
+  showActionNotice(`已添加字段“${label}”`);
 }
 
 /**
  * @param {ResumeModule} module
  * @param {ResumeField} field
+ * @param {string} label
  */
-function handleRenameField(module, field) {
-  const label = window.prompt("请输入新的字段名称", field.label)?.trim();
+function handleRenameField(module, field, label) {
+  const normalizedLabel = label.trim();
 
-  if (label === undefined || label === "" || label === field.label) {
+  if (normalizedLabel === "" || normalizedLabel === field.label) {
     return;
   }
 
-  field.label = label;
+  field.label = normalizedLabel;
   markDirtyAndRender();
+  showActionNotice(`已重命名字段为“${normalizedLabel}”`);
 }
 
 /**
@@ -575,15 +614,12 @@ function handleRenameField(module, field) {
  * @param {ResumeField} field
  */
 function handleDeleteField(module, field) {
-  if (!window.confirm(`确定删除字段“${field.label}”及对应内容吗？`)) {
-    return;
-  }
-
   module.fields = module.fields.filter((candidate) => candidate.id !== field.id);
   updateGroups(module, (group) => {
     delete group[field.id];
   });
   markDirtyAndRender();
+  showActionNotice(`已删除字段“${field.label}”`);
 }
 
 /**
@@ -832,6 +868,25 @@ function setSaveState(message, state) {
  */
 function showActionError(title, error) {
   setSaveState(`${title}：${getErrorMessage(error)}`, "error");
+  showActionNotice(`${title}：${getErrorMessage(error)}`, "error");
+}
+
+/**
+ * @param {string} message
+ * @param {"success" | "error"} [state]
+ */
+function showActionNotice(message, state = "success") {
+  if (actionToastTimer !== null) {
+    window.clearTimeout(actionToastTimer);
+  }
+
+  actionToast.textContent = message;
+  actionToast.dataset.state = state;
+  actionToast.hidden = false;
+  actionToastTimer = window.setTimeout(() => {
+    actionToast.hidden = true;
+    actionToastTimer = null;
+  }, 2200);
 }
 
 /**

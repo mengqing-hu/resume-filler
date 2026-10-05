@@ -88,10 +88,35 @@ function createResumeItem(
   const menu = document.createElement("details");
   menu.className = "resume-menu";
   const menuButton = document.createElement("summary");
-  menuButton.textContent = "更多";
+  menuButton.textContent = "⋮";
+  menuButton.title = "打开操作菜单";
   menuButton.setAttribute("aria-label", `管理${resume.name}`);
   const menuContent = createElement("div", {
     classNames: ["resume-menu-content"],
+  });
+  menu.addEventListener("toggle", () => {
+    if (!menu.open) {
+      menu.classList.remove("resume-menu--above");
+      return;
+    }
+
+    const list = menu.closest(".resume-list");
+    list?.querySelectorAll(".resume-menu[open]").forEach((openMenu) => {
+      if (openMenu !== menu) {
+        openMenu.removeAttribute("open");
+      }
+    });
+
+    window.requestAnimationFrame(() => {
+      const listRect = list?.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const contentRect = menuContent.getBoundingClientRect();
+      const shouldPlaceAbove =
+        listRect !== undefined &&
+        contentRect.bottom > listRect.bottom &&
+        menuRect.top - listRect.top > contentRect.height;
+      menu.classList.toggle("resume-menu--above", shouldPlaceAbove);
+    });
   });
 
   if (resume.id !== activeResumeId) {

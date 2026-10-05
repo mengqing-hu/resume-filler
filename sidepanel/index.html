@@ -28,16 +28,14 @@
         </select>
       </section>
 
-      <p class="milestone-note">
-        先点击网页输入框，再点击下方字段填写；没有选中输入框时会复制内容。
-      </p>
-
       <div id="module-list" class="module-list" aria-live="polite">
         <p class="loading-state">正在读取简历内容...</p>
       </div>
 
       <p id="panel-status" class="panel-status" role="status" aria-live="polite"></p>
     </main>
+
+    <div id="panel-toast" class="panel-toast" role="status" aria-live="polite" hidden></div>
 
     <script type="module" src="sidepanel.js"></script>
   </body>

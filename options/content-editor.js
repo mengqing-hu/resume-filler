@@ -126,9 +126,7 @@ function renderMultiGroup(module, group, groupIndex, handlers) {
   });
   deleteButton.type = "button";
   deleteButton.addEventListener("click", () => {
-    if (window.confirm(`确定删除“${module.name}”中的这一组内容吗？`)) {
-      handlers.onRemoveGroup(module, groupIndex);
-    }
+    handlers.onRemoveGroup(module, groupIndex);
   });
   groupHeader.append(groupTitle, deleteButton);
   groupCard.append(

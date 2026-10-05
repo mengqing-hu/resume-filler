@@ -2,6 +2,8 @@
 
 /** @type {Map<number, number>} */
 const focusedFrameByTabId = new Map();
+/** @type {Set<number>} */
+const optionsTabIds = new Set();
 
 /**
  * 配置工具栏图标，使用户点击后打开扩展侧边栏。
@@ -26,6 +28,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   focusedFrameByTabId.delete(tabId);
+  optionsTabIds.delete(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -35,6 +38,27 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (isOptionsPageReadyMessage(message) && sender.tab?.id !== undefined) {
+    optionsTabIds.add(sender.tab.id);
+    return false;
+  }
+
+  if (isOptionsToggleMessage(message) && sender.tab === undefined) {
+    void toggleOptionsPage().then(
+      sendResponse,
+      () => sendResponse({ status: "unavailable", open: false }),
+    );
+    return true;
+  }
+
+  if (isOptionsStateMessage(message) && sender.tab === undefined) {
+    void getOptionsPageState().then(
+      sendResponse,
+      () => sendResponse({ status: "ready", open: false }),
+    );
+    return true;
+  }
+
   if (isFocusStateMessage(message) && sender.tab?.id !== undefined) {
     if (message.focused) {
       focusedFrameByTabId.set(sender.tab.id, sender.frameId ?? 0);
@@ -57,6 +81,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 void configureSidePanel();
+
+/**
+ * 根据当前活动标签页切换设置页的打开状态。
+ *
+ * @returns {Promise<{ status: "opened" | "closed" | "unavailable", open: boolean }>}
+ */
+async function toggleOptionsPage() {
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+
+  if (activeTab?.id !== undefined && optionsTabIds.has(activeTab.id)) {
+    await chrome.tabs.remove(activeTab.id);
+    optionsTabIds.delete(activeTab.id);
+    return { status: "closed", open: false };
+  }
+
+  await chrome.runtime.openOptionsPage();
+  return { status: "opened", open: true };
+}
+
+/**
+ * @returns {Promise<{ status: "ready", open: boolean }>}
+ */
+async function getOptionsPageState() {
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+
+  return {
+    status: "ready",
+    open: activeTab?.id !== undefined && optionsTabIds.has(activeTab.id),
+  };
+}
 
 /**
  * 把侧边栏消息发送到当前标签页中最后聚焦输入框所在的框架。
@@ -119,6 +179,30 @@ function isFocusStateMessage(message) {
     message.type === "resume-filler-focus-state" &&
     typeof message.focused === "boolean"
   );
+}
+
+/**
+ * @param {unknown} message
+ * @returns {message is { type: "options-page-ready" }}
+ */
+function isOptionsPageReadyMessage(message) {
+  return isRecord(message) && message.type === "options-page-ready";
+}
+
+/**
+ * @param {unknown} message
+ * @returns {message is { type: "toggle-options-page" }}
+ */
+function isOptionsToggleMessage(message) {
+  return isRecord(message) && message.type === "toggle-options-page";
+}
+
+/**
+ * @param {unknown} message
+ * @returns {message is { type: "get-options-page-state" }}
+ */
+function isOptionsStateMessage(message) {
+  return isRecord(message) && message.type === "get-options-page-state";
 }
 
 /**

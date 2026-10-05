@@ -12,10 +12,12 @@ const undoButton = getElement("undo-fill", HTMLButtonElement);
 const resumeSelector = getElement("resume-selector", HTMLSelectElement);
 const moduleList = getElement("module-list", HTMLDivElement);
 const panelStatus = getElement("panel-status", HTMLParagraphElement);
+const panelToast = getElement("panel-toast", HTMLDivElement);
 const collapsedModuleIds = new Set();
+let panelToastTimer = null;
 
 openOptionsButton.addEventListener("click", () => {
-  void chrome.runtime.openOptionsPage();
+  void toggleOptionsPage();
 });
 
 undoButton.addEventListener("click", () => {
@@ -28,6 +30,7 @@ resumeSelector.addEventListener("change", () => {
 
 chrome.tabs.onActivated.addListener(() => {
   void refreshUndoAvailability();
+  void refreshOptionsButton();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -46,6 +49,48 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 void loadResumeCollection();
 void refreshUndoAvailability();
+void refreshOptionsButton();
+
+async function toggleOptionsPage() {
+  openOptionsButton.disabled = true;
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "toggle-options-page",
+    });
+    updateOptionsButton(
+      typeof response === "object" && response !== null && response.open === true,
+    );
+  } catch {
+    setPanelStatus("设置页无法切换", "error");
+    openOptionsButton.disabled = false;
+  }
+}
+
+async function refreshOptionsButton() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "get-options-page-state",
+    });
+    updateOptionsButton(
+      typeof response === "object" && response !== null && response.open === true,
+    );
+  } catch {
+    updateOptionsButton(false);
+  }
+}
+
+/**
+ * @param {boolean} isOpen
+ */
+function updateOptionsButton(isOpen) {
+  openOptionsButton.disabled = false;
+  openOptionsButton.textContent = isOpen ? "收起设置" : "设置";
+  openOptionsButton.setAttribute(
+    "aria-label",
+    isOpen ? "收起设置页" : "打开设置页",
+  );
+}
 
 async function loadResumeCollection() {
   try {
@@ -117,18 +162,25 @@ function renderModule(module, resume) {
   const header = createElement("div", { classNames: ["module-header"] });
   const title = createElement("h2", { text: module.name });
   const toggleButton = createElement("button", {
-    text: collapsedModuleIds.has(module.id) ? "展开" : "收起",
+    text: collapsedModuleIds.has(module.id) ? "▶" : "▼",
     classNames: ["module-toggle"],
   });
   const content = createElement("div", { classNames: ["module-content"] });
   const isCollapsed = collapsedModuleIds.has(module.id);
   toggleButton.type = "button";
+  toggleButton.title = isCollapsed ? "展开模块" : "收起模块";
+  toggleButton.setAttribute("aria-label", isCollapsed ? "展开模块" : "收起模块");
   toggleButton.setAttribute("aria-expanded", String(!isCollapsed));
   content.hidden = isCollapsed;
   toggleButton.addEventListener("click", () => {
     const shouldCollapse = !content.hidden;
     content.hidden = shouldCollapse;
-    toggleButton.textContent = shouldCollapse ? "展开" : "收起";
+    toggleButton.textContent = shouldCollapse ? "▶" : "▼";
+    toggleButton.title = shouldCollapse ? "展开模块" : "收起模块";
+    toggleButton.setAttribute(
+      "aria-label",
+      shouldCollapse ? "展开模块" : "收起模块",
+    );
     toggleButton.setAttribute("aria-expanded", String(!shouldCollapse));
 
     if (shouldCollapse) {
@@ -226,6 +278,7 @@ function renderGroup(module, group, groupIndex, showTitle) {
 async function handleFieldAction(value, label, button) {
   button.disabled = true;
   setPanelStatus(`正在处理“${label}”...`, "working");
+  let exceededMaxLength = false;
 
   try {
     let response = await sendMessageToActivePage({
@@ -234,15 +287,7 @@ async function handleFieldAction(value, label, button) {
     });
 
     if (response.status === "maxlength-exceeded") {
-      const confirmed = window.confirm(
-        `字段内容有 ${String(response.valueLength)} 个字符，输入框最多允许 ${String(response.maxLength)} 个字符。仍要继续填写吗？`,
-      );
-
-      if (!confirmed) {
-        setPanelStatus("已取消填写，字段内容超过输入框限制", "warning");
-        return;
-      }
-
+      exceededMaxLength = true;
       response = await sendMessageToActivePage({
         type: "fill-field",
         value,
@@ -252,7 +297,13 @@ async function handleFieldAction(value, label, button) {
 
     if (response.status === "filled") {
       undoButton.disabled = false;
-      setPanelStatus("", "loaded");
+      setPanelStatus(
+        exceededMaxLength ? "已超出长度限制并继续填写" : "已填写内容",
+        "loaded",
+      );
+      showPanelNotice(
+        exceededMaxLength ? "已超出长度限制并继续填写" : "已填写内容",
+      );
       return;
     }
 
@@ -283,6 +334,7 @@ async function handleUndo() {
 
   if (response.status === "undone") {
     setPanelStatus("已撤销上次填写", "copied");
+    showPanelNotice("已撤销上次填写");
   } else if (response.status === "unavailable") {
     setPanelStatus("页面脚本不可用，请刷新网页后重试", "error");
   } else if (response.status === "error") {
@@ -306,6 +358,7 @@ async function refreshUndoAvailability() {
 async function copyValue(value, message) {
   await navigator.clipboard.writeText(value);
   setPanelStatus(message, "copied");
+  showPanelNotice(message);
 }
 
 /**
@@ -371,6 +424,24 @@ function createEmptyMessage() {
 function setPanelStatus(message, state) {
   panelStatus.textContent = message;
   panelStatus.dataset.state = state;
+}
+
+/**
+ * @param {string} message
+ * @param {"success" | "error"} [state]
+ */
+function showPanelNotice(message, state = "success") {
+  if (panelToastTimer !== null) {
+    window.clearTimeout(panelToastTimer);
+  }
+
+  panelToast.textContent = message;
+  panelToast.dataset.state = state;
+  panelToast.hidden = false;
+  panelToastTimer = window.setTimeout(() => {
+    panelToast.hidden = true;
+    panelToastTimer = null;
+  }, 1800);
 }
 
 /**
