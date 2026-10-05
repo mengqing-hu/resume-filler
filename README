@@ -1,0 +1,16 @@
+# 插件使用介绍
+
+用 Chrome 直接加载即可，不需要构建或安装依赖。
+1. 打开 chrome://extensions/
+2. 开启右上角“开发者模式”
+3. 点击“加载已解压的扩展程序”
+4. 选择项目目录：/Users/humengqing/Documents/Code/VSCode/resume-filler
+5. 将“简历填写助手”固定到工具栏
+6. 打开任意普通网页，点击插件图标，右侧应出现侧边栏
+7. 点击侧边栏里的“打开设置页”，可查看设置页骨架
+修改代码后，在 chrome://extensions/ 点击插件卡片上的刷新按钮，再刷新网页。
+
+
+Edge 的操作相同，入口是 edge://extensions/。
+
+
